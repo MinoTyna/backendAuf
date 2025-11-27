@@ -257,6 +257,7 @@ CORS_ALLOWED_ORIGINS = [
 # ----- HOSTS -----
 ALLOWED_HOSTS = [
     "api.auf-sarlu.mg",
+    "16.16.235.176",
     "app.auf-sarlu.mg",
     "venteproduit.auf-sarlu.mg",
     "lu.auf-sarlu.mg",
