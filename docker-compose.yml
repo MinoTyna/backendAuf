@@ -5,7 +5,7 @@ services:
     depends_on:
       - db
     environment:
-      # - DB_HOST=db
+      - DB_HOST=data-base-instance-1-eu-north-1c.c1uc66i00dbc.eu-north-1.rds.amazonaws.com
       - DB_USER=postgres
       - DB_PASSWORD=christinne
       - DB_NAME=postgres
