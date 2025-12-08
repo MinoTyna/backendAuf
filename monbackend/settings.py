@@ -21,6 +21,12 @@ load_dotenv()
 
 import paypalrestsdk
 
+# Orange Money Sandbox
+OM_CLIENT_ID = "4GUDn93Kywn57rS93Mrq3dz30UZL9AJ3"
+OM_CLIENT_SECRET = "l1VtDjY10FI7O72c5EB3SjIw5pY9sWLDLILSG3OibSY9"
+
+MERCHANT_CODE = "100935"
+MERCHANT_KEY = "bf33f48c"
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -142,10 +148,10 @@ REST_FRAMEWORK = {
 DATABASES = {
     'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'auf_sarl',
+            'NAME': 'auf-sarl',
             'USER': 'postgres',
-            'PASSWORD': 'christinne',
-            'HOST': 'data-base-instance-1-eu-north-1c.c1uc66i00dbc.eu-north-1.rds.amazonaws.com',
+            'PASSWORD': '1234',
+            'HOST': 'localhost',
             'PORT': '5432',
     }
 }

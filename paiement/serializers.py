@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Paiement
+from .models import Paiement, PaiementMobile
 from decimal import Decimal
 from django.db.models import Sum
 
@@ -62,3 +62,9 @@ class PaiementSerializer(serializers.ModelSerializer):
         )['total'] or Decimal('0')
         revenu = max(total_deja_paye - total_attendu, Decimal('0'))
         return float(round(revenu, 2)) if revenu > 0 else 0
+
+
+class PaiementMobileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaiementMobile
+        fields = '__all__'

@@ -15,8 +15,9 @@
 
 # ]
 from django.urls import path
-from .views import PaiementCreateView, PaiementListView, VerifierPaiementListView, PaiementDeleteAPIView, ListeResteAPayerParClient,ListePayerParClients,ListePayerParClient,PaiementUpdateView,SmsVerifierByClientView,RepaiementCreateView,PaiementView,ChiffreAffairesAPIView
+from .views import PaiementCreateView,LancerPaiementOrange, PaiementListView, VerifierPaiementListView, PaiementDeleteAPIView, ListeResteAPayerParClient,ListePayerParClients,ListePayerParClient,PaiementUpdateView,SmsVerifierByClientView,RepaiementCreateView,PaiementView,ChiffreAffairesAPIView
 from . import views
+from .views import init_payment, om_callback
 urlpatterns = [
     path('post', PaiementCreateView.as_view(), name='enregistrer-paiement'),
     path('repaiement', RepaiementCreateView.as_view(), name='enregistrer-paiement'),
@@ -35,4 +36,8 @@ urlpatterns = [
     path("paypal/<int:achat_id>/", views.creer_paiement_paypal),
     path("valider/<int:paiement_id>/", views.valider_paiement_paypal),
     path("annuler/<int:paiement_id>/", views.annuler_paiement_paypal),  # <-- ajouté
+    path('orange/', LancerPaiementOrange.as_view(), name='paiement-orange'),
+    path("api/pay/", init_payment),
+    path("api/payment/callback/", om_callback),
+
 ]

@@ -50,160 +50,194 @@ from django.db.models import Sum
 # from .utils import envoyer_sms  # adapte selon ton projet
 
 
+from rest_framework import generics, status
+from rest_framework.response import Response
+from .models import Paiement, PaiementMobile
+from .serializers import PaiementSerializer, PaiementMobileSerializer
+import random
+
+# Création paiement classique ou mensuel
 class PaiementCreateView(generics.CreateAPIView):
     queryset = Paiement.objects.all()
     serializer_class = PaiementSerializer
 
     def create(self, request, *args, **kwargs):
-        client_id = request.data.get('client')
-        if not client_id:
-            return Response({"error": "Le champ 'client' est requis."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            montant_paye = Decimal(request.data.get('Paiement_montant', '0'))
-        except:
-            return Response({"error": "Le montant payé est invalide."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if montant_paye < Decimal('0'):
-            return Response({"error": "Le montant minimum à payer est de 100 000 Ariary."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        type_paiement = request.data.get('Paiement_type', '').lower()
-        if type_paiement not in ['comptant', 'mensuel']:
-            return Response({"error": "Type de paiement invalide."}, status=status.HTTP_400_BAD_REQUEST)
-
-        montant_choisi = None
-        date_choisie = None
-        prochaine_date = None
-
-        # 🔹 Gestion paiement mensuel
-        if type_paiement == 'mensuel':
-            dernier_paiement = Paiement.objects.filter(
-                AchatsID__ClientID_id=client_id,
-                Paiement_type='mensuel',
-                Paiement_montantchoisi__isnull=False,
-                Paiement_datechoisi__isnull=False
-            ).order_by('-Paiement_date').first()
-
-            if dernier_paiement:
-                montant_choisi = dernier_paiement.Paiement_montantchoisi
-                date_choisie = dernier_paiement.Paiement_datechoisi
-                mois_a_ajouter = int(montant_paye / montant_choisi)
-                prochaine_date = date_choisie + relativedelta(months=mois_a_ajouter)
-            else:
-                montant_choisi_str = request.data.get('Paiement_montantchoisi')
-                date_choisie_str = request.data.get('Paiement_datechoisi')
-
-                if not montant_choisi_str or not date_choisie_str:
-                    return Response({
-                        "error": "Le montant choisi et la date choisie sont requis pour le premier paiement mensuel."
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                try:
-                    montant_choisi = Decimal(montant_choisi_str)
-                    date_choisie = datetime.strptime(date_choisie_str, "%Y-%m-%d").date()
-                except:
-                    return Response({"error": "Montant ou date invalide (format attendu : YYYY-MM-DD)."},
-                                    status=status.HTTP_400_BAD_REQUEST)
-                prochaine_date = date_choisie
-
-        # 🔹 Vérifie les achats du client
-        achats_client = Achat.objects.filter(ClientID_id=client_id)
-        if not achats_client.exists():
-            return Response({"error": "Aucun achat trouvé pour ce client."}, status=status.HTTP_404_NOT_FOUND)
-
-        total_attendu = sum(achat.ProduitID.Produit_prix * achat.Achat_quantite for achat in achats_client)
-        total_deja_paye = Paiement.objects.filter(AchatsID__ClientID_id=client_id).aggregate(
-            total=Sum('Paiement_montant')
-        )['total'] or Decimal('0')
-
-        nouveau_total = total_deja_paye + montant_paye
-        reste = max(total_attendu - nouveau_total, Decimal('0'))
-        statut = "complet" if nouveau_total >= total_attendu else "incomplet"
-        montant_rendu = int(nouveau_total - total_attendu) if nouveau_total > total_attendu else 0
-        revenu = int(nouveau_total - total_attendu) if nouveau_total > total_attendu else 0
-
-        dernier_achat = achats_client.order_by('-Achat_date').first()
-
-        # 🔹 Génération numéro de facture
-        last_facture = Facture.objects.order_by('-id').first()
-        last_num = 0
-        if last_facture and last_facture.numero_facture:
-            import re
-            match = re.search(r'FACT-(\d+)', last_facture.numero_facture)
-            if match:
-                last_num = int(match.group(1))
-        new_num = last_num + 1
-        numero_facture = f"FACT-{new_num:04d}"
-
-        facture = Facture.objects.create(achat=dernier_achat, numero_facture=numero_facture)
-
-        # 🔹 Création du paiement
         data = request.data.copy()
-        data['AchatsID'] = dernier_achat.id
-        data['Paiement_montant'] = montant_paye
+        
+        # 🔹 Paiement mobile sandbox
+        if data.get("mode") and data["mode"].lower() == "orange":
+            # Génération d'un paiement mobile
+            mobile_data = {
+                "numero_client": data.get("numero_client"),
+                "montant": data.get("montant"),
+                "mode": data.get("mode").lower(),
+                "statut": "en_attente",
+            }
+            paiement_mobile = PaiementMobile.objects.create(**mobile_data)
+            paiement_mobile.transaction_reference = f"TXN-{random.randint(100000,999999)}"
+            paiement_mobile.save()
 
-        if type_paiement == 'mensuel':
-            data['Paiement_montantchoisi'] = montant_choisi
-            data['Paiement_datechoisi'] = prochaine_date
-        else:
-            data.pop('Paiement_montantchoisi', None)
-            data.pop('Paiement_datechoisi', None)
+            # URL sandbox Orange Money fictive pour test
+            payment_url = f"https://sandbox.orange-money.com/payment/{paiement_mobile.transaction_reference}"
 
+            return Response({
+                "message": f"Paiement sandbox créé ! URL sandbox: {payment_url}",
+                "transaction_reference": paiement_mobile.transaction_reference,
+                "payment_url": payment_url,
+                "statut": paiement_mobile.statut
+            }, status=status.HTTP_201_CREATED)
+
+        # 🔹 Paiement classique
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         paiement = serializer.save()
-
-        # 🔹 🔥 Test sandbox MVola (simulation mobile)
-        if paiement.Paiement_mode in ['mvola', 'airtel', 'orange']:
-            message_sandbox = paiement.verifier_paiement_mobile()
-        else:
-            message_sandbox = "Paiement classique enregistré avec succès."
-
-        # 🔹 Envoi SMS
-        client = dernier_achat.ClientID
-        numero = client.Client_telephone
-        envoyer_sms(numero, f"Bonjour {client.Client_nom}, votre paiement de {montant_paye:.0f} Ar a été reçu. "
-                            f"Statut: {statut}. Reste à payer: {reste:.0f} Ar.")
-
-        # 🔹 Préparation de la réponse
-        produits_achetes = [
-            {
-                "nom": achat.ProduitID.Produit_nom,
-                "quantite": achat.Achat_quantite,
-                "prix_unitaire": int(achat.ProduitID.Produit_prix),
-                "total": int(achat.ProduitID.Produit_prix * achat.Achat_quantite)
-            }
-            for achat in achats_client
-        ]
-
-        prixtotalproduit = sum(p["total"] for p in produits_achetes)
-        nombredemois_restant = int(reste / montant_choisi) if montant_choisi else None
-
         return Response({
-            "message_sandbox": message_sandbox,
-            "repaiement": True if type_paiement == 'mensuel' and total_deja_paye > 0 else False,
-            "client": client.Client_nom,
-            "client_id": client.id,
-            "produits": produits_achetes,
-            "prixtotalproduit": prixtotalproduit,
-            "total_paye": int(nouveau_total),
-            "reste_a_payer": int(reste),
-            "montant_rendu": montant_rendu,
-            "revenu": revenu,
-            "statut": statut,
-            "Paiement_type": type_paiement,
-            "Paiement_montantchoisi": int(montant_choisi) if montant_choisi else None,
-            "nombredemois_restant": nombredemois_restant,
-            "date_paiement_prochaine": str(prochaine_date) if prochaine_date else None,
-            "numero_facture": facture.numero_facture,
-            "facture_id": facture.id,
-            "transaction_reference": paiement.transaction_reference,
-            "statut_mobile": paiement.statut
+            "message": "Paiement créé avec succès",
+            "paiement_id": paiement.id,
+            "statut": paiement.statut
         }, status=status.HTTP_201_CREATED)
 
+import requests
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from decimal import Decimal
+from django.conf import settings
+
+class LancerPaiementOrange(APIView):
+    """
+    Crée un paiement Orange Money sandbox et renvoie le payment_url
+    """
+
+    def post(self, request):
+        numero_client = request.data.get("numero_client")
+        montant = request.data.get("montant")
+        order_id = request.data.get("order_id", "01")
+
+        if not numero_client or not montant:
+            return Response({"error": "numero_client et montant requis"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔹 Étape 1 : récupérer access token
+        client_id = settings.ORANGE_CLIENT_ID
+        client_secret = settings.ORANGE_CLIENT_SECRET
+
+        auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+        token_url = "https://api.orange.com/oauth/v3/token"
+        token_data = {"grant_type": "client_credentials"}
+        token_headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        token_resp = requests.post(token_url, auth=auth, data=token_data, headers=token_headers)
+        if token_resp.status_code != 200:
+            return Response({"error": "Impossible de récupérer access token", "details": token_resp.text}, status=500)
+
+        access_token = token_resp.json().get("access_token")
+
+        # 🔹 Étape 2 : créer paiement sandbox
+        payment_url_api = "https://api.orange.com/orange-money-webpayment/dev/v1/webpayment"
+        payment_payload = {
+            "merchant_key": settings.ORANGE_MERCHANT_KEY,
+            "currency": "OMUV",
+            "order_id": str(order_id),
+            "amount": Decimal(montant),
+            "return_url": "http://localhost:3000/return",
+            "cancel_url": "http://localhost:3000/cancel",
+            "notif_url": "http://localhost:8000/notify",
+            "lang": "fr",
+            "reference": "Ma boutique"
+        }
+
+        payment_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        payment_resp = requests.post(payment_url_api, json=payment_payload, headers=payment_headers)
+        if payment_resp.status_code != 201:
+            return Response({"error": "Impossible de créer paiement", "details": payment_resp.text}, status=500)
+
+        data = payment_resp.json()
+        payment_url = data.get("payment_url")
+
+        return Response({
+            "message": "Paiement créé avec succès",
+            "payment_url": payment_url,
+            "pay_token": data.get("pay_token"),
+            "notif_token": data.get("notif_token")
+        }, status=201)
+
+import json
+import json
+import requests
+import uuid
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .utils import get_access_token 
+import requests
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .utils import get_access_token
+
+MERCHANT_CODE = "100935"
+MERCHANT_KEY = "bf33f48c"  # <<< À REMPLACER !!
 
 
+@csrf_exempt
+def init_payment(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    data = json.loads(request.body)
+    amount = data.get("amount")
+    phone = data.get("phone")
+
+    if phone.startswith("0"):
+        phone = "261" + phone[1:]
+
+    order_id = str(uuid.uuid4())[:8]
+    token = get_access_token()
+
+    payload = {
+        "merchant_code": MERCHANT_CODE,
+        "merchant_key": MERCHANT_KEY,
+        "amount": str(amount),
+        "currency": "OUV",          # ✅ Correcte pour Madagascar
+        "order_id": order_id,
+        "customer_msisdn": phone,
+        "return_url": "https://ventes.auf-sarlu.mg",
+        "cancel_url": "https://ventes.auf-sarlu.mg",
+        "notif_url": "https://ton-api.com/api/payment/callback/",
+        "lang": "fr"
+    }
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    url = "https://api.orange.com/orange-money-webpay/dev/v1/webpayment"  # ✅ Sandbox Madagascar
+
+    response = requests.post(url, json=payload, headers=headers)
+    return JsonResponse(response.json())
+@csrf_exempt
+def om_callback(request):
+    """
+    Callback pour Orange Money
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "POST only"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        print("🔔 CALLBACK ORANGE MONEY :", data)
+        # Ici, mettre à jour ta base : statut commande, référence OM, date paiement etc.
+
+        return JsonResponse({"status": "received"})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    data = json.loads(request.body)
+    print("CALLBACK REÇU :", data)
+    return JsonResponse({"received": True})
 # class PaiementCreateView(generics.CreateAPIView):
 #     queryset = Paiement.objects.all()
 #     serializer_class = PaiementSerializer
