@@ -22,8 +22,5 @@ urlpatterns = [
     path('client/reset-password/', ResetPasswordClientAPIView.as_view(), name='reset-password'),
 
 
-
-
-
 ]
 
