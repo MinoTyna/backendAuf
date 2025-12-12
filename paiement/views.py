@@ -18,7 +18,20 @@ from django.utils.timezone import now
 from collections import defaultdict
 import re
 
+import os, json, uuid, base64, requests
+from decimal import Decimal
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from rest_framework import generics, status
+from rest_framework.response import Response
+from .models import Paiement, Achat, Facture
+from .serializers import PaiementSerializer
 
+# 🔹 Orange Money credentials
+MERCHANT_CODE = os.getenv("OM_MERCHANT_CODE")
+MERCHANT_KEY = os.getenv("OM_MERCHANT_KEY")
+CLIENT_ID = os.getenv("OM_CLIENT_ID")
+CLIENT_SECRET = os.getenv("OM_CLIENT_SECRET")
 
 def envoyer_sms(numero, message):
     # Simule l’envoi de SMS
@@ -56,46 +69,46 @@ from .models import Paiement, PaiementMobile
 from .serializers import PaiementSerializer, PaiementMobileSerializer
 import random
 
-# Création paiement classique ou mensuel
-class PaiementCreateView(generics.CreateAPIView):
-    queryset = Paiement.objects.all()
-    serializer_class = PaiementSerializer
+# # Création paiement classique ou mensuel
+# class PaiementCreateView(generics.CreateAPIView):
+#     queryset = Paiement.objects.all()
+#     serializer_class = PaiementSerializer
 
-    def create(self, request, *args, **kwargs):
-        data = request.data.copy()
+#     def create(self, request, *args, **kwargs):
+#         data = request.data.copy()
         
-        # 🔹 Paiement mobile sandbox
-        if data.get("mode") and data["mode"].lower() == "orange":
-            # Génération d'un paiement mobile
-            mobile_data = {
-                "numero_client": data.get("numero_client"),
-                "montant": data.get("montant"),
-                "mode": data.get("mode").lower(),
-                "statut": "en_attente",
-            }
-            paiement_mobile = PaiementMobile.objects.create(**mobile_data)
-            paiement_mobile.transaction_reference = f"TXN-{random.randint(100000,999999)}"
-            paiement_mobile.save()
+#         # 🔹 Paiement mobile sandbox
+#         if data.get("mode") and data["mode"].lower() == "orange":
+#             # Génération d'un paiement mobile
+#             mobile_data = {
+#                 "numero_client": data.get("numero_client"),
+#                 "montant": data.get("montant"),
+#                 "mode": data.get("mode").lower(),
+#                 "statut": "en_attente",
+#             }
+#             paiement_mobile = PaiementMobile.objects.create(**mobile_data)
+#             paiement_mobile.transaction_reference = f"TXN-{random.randint(100000,999999)}"
+#             paiement_mobile.save()
 
-            # URL sandbox Orange Money fictive pour test
-            payment_url = f"https://sandbox.orange-money.com/payment/{paiement_mobile.transaction_reference}"
+#             # URL sandbox Orange Money fictive pour test
+#             payment_url = f"https://sandbox.orange-money.com/payment/{paiement_mobile.transaction_reference}"
 
-            return Response({
-                "message": f"Paiement sandbox créé ! URL sandbox: {payment_url}",
-                "transaction_reference": paiement_mobile.transaction_reference,
-                "payment_url": payment_url,
-                "statut": paiement_mobile.statut
-            }, status=status.HTTP_201_CREATED)
+#             return Response({
+#                 "message": f"Paiement sandbox créé ! URL sandbox: {payment_url}",
+#                 "transaction_reference": paiement_mobile.transaction_reference,
+#                 "payment_url": payment_url,
+#                 "statut": paiement_mobile.statut
+#             }, status=status.HTTP_201_CREATED)
 
-        # 🔹 Paiement classique
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        paiement = serializer.save()
-        return Response({
-            "message": "Paiement créé avec succès",
-            "paiement_id": paiement.id,
-            "statut": paiement.statut
-        }, status=status.HTTP_201_CREATED)
+#         # 🔹 Paiement classique
+#         serializer = self.get_serializer(data=data)
+#         serializer.is_valid(raise_exception=True)
+#         paiement = serializer.save()
+#         return Response({
+#             "message": "Paiement créé avec succès",
+#             "paiement_id": paiement.id,
+#             "statut": paiement.statut
+#         }, status=status.HTTP_201_CREATED)
 
 import requests
 from rest_framework.views import APIView
@@ -177,67 +190,157 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .utils import get_access_token
 
-MERCHANT_CODE = "100935"
-MERCHANT_KEY = "bf33f48c"  # <<< À REMPLACER !!
+# MERCHANT_CODE = "100935"
+# MERCHANT_KEY = "bf33f48c"  # <<< À REMPLACER !!
 
 
-@csrf_exempt
-def init_payment(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "POST required"}, status=405)
+# @csrf_exempt
+# def init_payment(request):
+#     if request.method != "POST":
+#         return JsonResponse({"error": "POST required"}, status=405)
 
-    data = json.loads(request.body)
-    amount = data.get("amount")
-    phone = data.get("phone")
+#     data = json.loads(request.body)
+#     amount = data.get("amount")
+#     phone = data.get("phone")
 
-    if phone.startswith("0"):
-        phone = "261" + phone[1:]
+#     if phone.startswith("0"):
+#         phone = "261" + phone[1:]
 
-    order_id = str(uuid.uuid4())[:8]
-    token = get_access_token()
+#     order_id = str(uuid.uuid4())[:8]
+#     token = get_access_token()
 
-    payload = {
-        "merchant_code": MERCHANT_CODE,
-        "merchant_key": MERCHANT_KEY,
-        "amount": str(amount),
-        "currency": "OUV",          # ✅ Correcte pour Madagascar
-        "order_id": order_id,
-        "customer_msisdn": phone,
-        "return_url": "https://ventes.auf-sarlu.mg",
-        "cancel_url": "https://ventes.auf-sarlu.mg",
-        "notif_url": "https://ton-api.com/api/payment/callback/",
-        "lang": "fr"
-    }
+#     payload = {
+#         "merchant_code": MERCHANT_CODE,
+#         "merchant_key": MERCHANT_KEY,
+#         "amount": str(amount),
+#         "currency": "OUV",          # ✅ Correcte pour Madagascar
+#         "order_id": order_id,
+#         "customer_msisdn": phone,
+#         "return_url": "https://ventes.auf-sarlu.mg",
+#         "cancel_url": "https://ventes.auf-sarlu.mg",
+#         "notif_url": "https://ton-api.com/api/payment/callback/",
+#         "lang": "fr"
+#     }
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+#     headers = {
+#         "Authorization": f"Bearer {token}",
+#         "Content-Type": "application/json"
+#     }
 
-    url = "https://api.orange.com/orange-money-webpay/dev/v1/webpayment"  # ✅ Sandbox Madagascar
+#     url = "https://api.orange.com/orange-money-webpay/dev/v1/webpayment"  # ✅ Sandbox Madagascar
 
-    response = requests.post(url, json=payload, headers=headers)
-    return JsonResponse(response.json())
-@csrf_exempt
-def om_callback(request):
-    """
-    Callback pour Orange Money
-    """
-    if request.method != "POST":
-        return JsonResponse({"error": "POST only"}, status=405)
+#     response = requests.post(url, json=payload, headers=headers)
+#     return JsonResponse(response.json())
+# @csrf_exempt
+# def om_callback(request):
+#     """
+#     Callback pour Orange Money
+#     """
+#     if request.method != "POST":
+#         return JsonResponse({"error": "POST only"}, status=405)
 
-    try:
-        data = json.loads(request.body)
-        print("🔔 CALLBACK ORANGE MONEY :", data)
-        # Ici, mettre à jour ta base : statut commande, référence OM, date paiement etc.
+#     try:
+#         data = json.loads(request.body)
+#         print("🔔 CALLBACK ORANGE MONEY :", data)
+#         # Ici, mettre à jour ta base : statut commande, référence OM, date paiement etc.
 
-        return JsonResponse({"status": "received"})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)
+#         return JsonResponse({"status": "received"})
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=400)
 
-    data = json.loads(request.body)
-    print("CALLBACK REÇU :", data)
-    return JsonResponse({"received": True})
+#     data = json.loads(request.body)
+#     print("CALLBACK REÇU :", data)
+#     return JsonResponse({"received": True})
+
+import json, uuid, base64, requests
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import os
+
+MERCHANT_CODE = os.getenv("OM_MERCHANT_CODE")
+MERCHANT_KEY = os.getenv("OM_MERCHANT_KEY")
+CLIENT_ID = os.getenv("OM_CLIENT_ID")
+CLIENT_SECRET = os.getenv("OM_CLIENT_SECRET")
+
+# def get_access_token():
+#     url = "https://api.orange.com/oauth/v3/token"
+#     auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
+#     auth_base64 = base64.b64encode(auth_string.encode()).decode()
+#     headers = {
+#         "Authorization": f"Basic {auth_base64}",
+#         "Content-Type": "application/x-www-form-urlencoded"
+#     }
+#     data = {"grant_type": "client_credentials"}
+#     response = requests.post(url, data=data, headers=headers)
+#     response.raise_for_status()
+#     return response.json().get("access_token")
+
+# @csrf_exempt
+# def init_payment(request):
+#     if request.method != "POST":
+#         return JsonResponse({"error": "POST required"}, status=405)
+
+#     data = json.loads(request.body)
+
+#     # --- Montant corrigé ---
+#     amount = data.get("amount")
+#     try:
+#         amount = int(amount)
+#     except (ValueError, TypeError):
+#         return JsonResponse({"error": "Montant invalide"}, status=400)
+
+#     # --- Téléphone format international ---
+#     phone = data.get("phone")
+#     if phone.startswith("0"):
+#         phone = "261" + phone[1:]
+
+#     order_id = str(uuid.uuid4())[:8]
+#     token = get_access_token()
+
+#     payload = {
+#         "merchant_code": MERCHANT_CODE,
+#         "merchant_key": MERCHANT_KEY,
+#         "amount": str(amount),
+#         "currency": "MGA",
+#         "order_id": order_id,
+#         "customer_msisdn": phone,
+#         "return_url": "https://ventes.auf-sarlu.mg",
+#         "cancel_url": "https://ventes.auf-sarlu.mg",
+#         "notif_url": "https://ventes.auf-sarlu.mg/api/payment/callback/",
+#         "lang": "fr"
+#     }
+
+#     headers = {
+#         "Authorization": f"Bearer {token}",
+#         "Content-Type": "application/json"
+#     }
+
+#     url = "https://api.orange.com/orange-money-webpay/mg/v1/webpayment"  # PROD Madagascar
+
+#     response = requests.post(url, json=payload, headers=headers)
+
+#     try:
+#         resp_json = response.json()
+#     except Exception:
+#         resp_json = {"error": "Erreur Orange Money", "details": response.text}
+
+#     return JsonResponse(resp_json)
+
+
+# @csrf_exempt
+# def om_callback(request):
+#     if request.method != "POST":
+#         return JsonResponse({"error": "POST only"}, status=405)
+
+#     try:
+#         data = json.loads(request.body)
+#         print("🔔 CALLBACK ORANGE MONEY :", data)
+#         # Mettre ici la mise à jour de ta base : statut commande, référence OM, date paiement etc.
+#         return JsonResponse({"status": "received"})
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=400)
+
+
 # class PaiementCreateView(generics.CreateAPIView):
 #     queryset = Paiement.objects.all()
 #     serializer_class = PaiementSerializer
@@ -425,129 +528,141 @@ from .serializers import PaiementSerializer
 from achats.models import Achat, Facture
 
 
-# class RepaiementCreateView(generics.CreateAPIView):
-#     queryset = Paiement.objects.all()
-#     serializer_class = PaiementSerializer
+class PaiementCreateView(generics.CreateAPIView):
+    queryset = Paiement.objects.all()
+    serializer_class = PaiementSerializer
 
-#     def create(self, request, *args, **kwargs):
-#         client_id = request.data.get('client')
-#         if not client_id:
-#             return Response({"error": "Le champ 'client' est requis."}, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request, *args, **kwargs):
+        client_id = request.data.get('client')
+        if not client_id:
+            return Response({"error": "Le champ 'client' est requis."}, status=status.HTTP_400_BAD_REQUEST)
 
-#         # Montant payé sécurisé
-#         montant_raw = request.data.get('Paiement_montant')
-#         try:
-#             montant_paye = Decimal(montant_raw)
-#             if montant_paye <= 0:
-#                 raise InvalidOperation
-#         except (InvalidOperation, TypeError):
-#             return Response({"error": "Montant payé invalide."}, status=status.HTTP_400_BAD_REQUEST)
+        # Montant payé sécurisé
+        montant_raw = request.data.get('Paiement_montant')
+        try:
+            montant_paye = Decimal(montant_raw)
+            if montant_paye <= 0:
+                raise InvalidOperation
+        except (InvalidOperation, TypeError):
+            return Response({"error": "Montant payé invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
-#         # Type de paiement
-#         type_paiement = request.data.get('Paiement_type', '').lower()
-#         if type_paiement not in ['comptant', 'mensuel']:
-#             return Response({"error": "Type de paiement invalide."}, status=status.HTTP_400_BAD_REQUEST)
+        # Type de paiement
+        type_paiement = request.data.get('Paiement_type', '').lower()
+        if type_paiement not in ['comptant', 'mensuel']:
+            return Response({"error": "Type de paiement invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
-#         # Tous les achats du client
-#         achats_client = Achat.objects.filter(ClientID_id=client_id)
-#         if not achats_client.exists():
-#             return Response({"error": "Aucun achat trouvé pour ce client."}, status=status.HTTP_404_NOT_FOUND)
+        # Tous les achats du client
+        achats_client = Achat.objects.filter(ClientID_id=client_id)
+        if not achats_client.exists():
+            return Response({"error": "Aucun achat trouvé pour ce client."}, status=status.HTTP_404_NOT_FOUND)
 
-#         # Filtrer les achats incomplets
-#         achats_incomplets = []
-#         for achat in achats_client:
-#             total_paye = Paiement.objects.filter(AchatsID=achat.id).aggregate(total=Sum('Paiement_montant'))['total'] or Decimal('0')
-#             total_attendu = achat.ProduitID.Produit_prix * achat.Achat_quantite
-#             if total_paye < total_attendu:
-#                 achats_incomplets.append(achat)
+        # Filtrer les achats incomplets
+        achats_incomplets = []
+        for achat in achats_client:
+            total_paye = Paiement.objects.filter(AchatsID=achat.id).aggregate(total=Sum('Paiement_montant'))['total'] or Decimal('0')
+            total_attendu = achat.ProduitID.Produit_prix * achat.Achat_quantite
+            if total_paye < total_attendu:
+                achats_incomplets.append(achat)
 
-#         if not achats_incomplets:
-#             return Response({"error": "Tous les achats de ce client sont déjà complets."}, status=status.HTTP_400_BAD_REQUEST)
+        if not achats_incomplets:
+            return Response({"error": "Tous les achats de ce client sont déjà complets."}, status=status.HTTP_400_BAD_REQUEST)
 
-#         # On prend le premier achat incomplet
-#         dernier_achat = achats_incomplets[0]
-#         total_attendu = dernier_achat.ProduitID.Produit_prix * dernier_achat.Achat_quantite
+        # On prend le premier achat incomplet
+        dernier_achat = achats_incomplets[0]
+        total_attendu = dernier_achat.ProduitID.Produit_prix * dernier_achat.Achat_quantite
 
-#         # Gestion du paiement mensuel
-#         montant_choisi = None
-#         prochaine_date = None
-#         if type_paiement == 'mensuel':
-#             dernier_paiement = Paiement.objects.filter(
-#                 AchatsID__ClientID_id=client_id,
-#                 Paiement_type='mensuel'
-#             ).order_by('-Paiement_datechoisi').first()
+        # Gestion du paiement mensuel
+        montant_choisi = None
+        prochaine_date = None
+        if type_paiement == 'mensuel':
+            dernier_paiement = Paiement.objects.filter(
+                AchatsID__ClientID_id=client_id,
+                Paiement_type='mensuel'
+            ).order_by('-Paiement_datechoisi').first()
 
-#             if dernier_paiement and dernier_paiement.Paiement_montantchoisi:
-#                 montant_choisi = dernier_paiement.Paiement_montantchoisi
-#                 date_choisie = dernier_paiement.Paiement_datechoisi or datetime.today().date()
-#                 mois_a_ajouter = int(montant_paye / montant_choisi) if montant_choisi > 0 else 0
-#                 prochaine_date = date_choisie + relativedelta(months=mois_a_ajouter)
-#             else:
-#                 montant_choisi = montant_paye
-#                 prochaine_date = datetime.today().date()
+            if dernier_paiement and dernier_paiement.Paiement_montantchoisi:
+                montant_choisi = dernier_paiement.Paiement_montantchoisi
+                date_choisie = dernier_paiement.Paiement_datechoisi or datetime.today().date()
+                mois_a_ajouter = int(montant_paye / montant_choisi) if montant_choisi > 0 else 0
+                prochaine_date = date_choisie + relativedelta(months=mois_a_ajouter)
+            else:
+                montant_choisi = montant_paye
+                prochaine_date = datetime.today().date()
 
-#         # Créer le paiement
-#         paiement_data = {
-#             'AchatsID': dernier_achat.id,
-#             'Paiement_montant': montant_paye,
-#             'Paiement_mode': request.data.get('Paiement_mode'),
-#             'Paiement_type': type_paiement,
-#         }
-#         if type_paiement == 'mensuel':
-#             paiement_data['Paiement_montantchoisi'] = montant_choisi
-#             paiement_data['Paiement_datechoisi'] = prochaine_date
+        # Créer le paiement
+        paiement_data = {
+            'AchatsID': dernier_achat.id,
+            'Paiement_montant': montant_paye,
+            'Paiement_mode': request.data.get('Paiement_mode'),
+            'Paiement_type': type_paiement,
+        }
+        if type_paiement == 'mensuel':
+            paiement_data['Paiement_montantchoisi'] = montant_choisi
+            paiement_data['Paiement_datechoisi'] = prochaine_date
 
-#         serializer = self.get_serializer(data=paiement_data)
-#         serializer.is_valid(raise_exception=True)
-#         paiement = serializer.save()
+        serializer = self.get_serializer(data=paiement_data)
+        serializer.is_valid(raise_exception=True)
+        paiement = serializer.save()
 
-#         # Total déjà payé sur tous les achats du client
-#         total_deja_paye = Paiement.objects.filter(
-#             AchatsID__ClientID_id=client_id
-#         ).aggregate(total=Sum('Paiement_montant'))['total'] or Decimal('0')
+        # Total déjà payé sur tous les achats du client
+        total_deja_paye = Paiement.objects.filter(
+            AchatsID__ClientID_id=client_id
+        ).aggregate(total=Sum('Paiement_montant'))['total'] or Decimal('0')
 
-#         # Montants restants pour ce paiement
-#         reste = max(total_attendu - total_deja_paye, Decimal('0'))
-#         statut = "complet" if total_deja_paye >= total_attendu else "incomplet"
-#         montant_rendu = int(total_deja_paye - total_attendu) if total_deja_paye > total_attendu else 0
+        # Montants restants pour ce paiement
+        reste = max(total_attendu - total_deja_paye, Decimal('0'))
+        statut = "complet" if total_deja_paye >= total_attendu else "incomplet"
+        montant_rendu = int(total_deja_paye - total_attendu) if total_deja_paye > total_attendu else 0
 
-#         # Création ou récupération unique de la facture
-#         facture, created = Facture.objects.get_or_create(
-#             achat=dernier_achat,
-#             defaults={'numero_facture': None}
-#         )
+        # -----------------------------
+        # 🔥 CORRECTION DE LA FACTURE 🔥
+        # -----------------------------
+        facture, created = Facture.objects.get_or_create(
+            paiement=paiement,     # ← champ valide
+            defaults={'numero_facture': None}
+        )
 
-#         produits_achetes = [
-#             {
-#                 "nom": achat.ProduitID.Produit_nom,
-#                 "quantite": achat.Achat_quantite,
-#                 "prix_unitaire": int(achat.ProduitID.Produit_prix),
-#                 "total": int(achat.ProduitID.Produit_prix * achat.Achat_quantite)
-#             } for achat in achats_client
-#         ]
-#         prixtotalproduit = sum(p["total"] for p in produits_achetes)
+        # Si pas encore de numéro de facture → générer automatiquement
+        if facture.numero_facture is None:
+            facture.numero_facture = f"FAC-{facture.id:06d}"
+            facture.save()
+        # ------------------------------------------
 
-#         nombredemois_restant = int(reste / montant_choisi) if type_paiement == 'mensuel' and montant_choisi else None
-#         revenu_total = total_deja_paye
+        produits_achetes = [
+            {
+                "nom": achat.ProduitID.Produit_nom,
+                "quantite": achat.Achat_quantite,
+                "prix_unitaire": int(achat.ProduitID.Produit_prix),
+                "total": int(achat.ProduitID.Produit_prix * achat.Achat_quantite)
+            } for achat in achats_client
+        ]
 
-#         return Response({
-#             "repaiement": type_paiement == 'mensuel' and total_deja_paye > 0,
-#             "client": dernier_achat.ClientID.Client_nom,
-#             "produits": produits_achetes,
-#             "prixtotalproduit": prixtotalproduit,
-#             "total_paye": int(total_deja_paye),
-#             "reste_a_payer": int(reste),
-#             "montant_rendu": montant_rendu,
-#             "statut": statut,
-#             "Paiement_type": type_paiement,
-#             "Paiement_montantchoisi": int(montant_choisi) if montant_choisi else None,
-#             "nombredemois_restant": nombredemois_restant,
-#             "date_paiement_prochaine": str(prochaine_date) if prochaine_date else None,
-#             "numero_facture": facture.numero_facture,
-#             "facture_id": facture.id,
-#             "revenu": int(montant_paye),
-#             "revenu_total": int(revenu_total)
-#         }, status=status.HTTP_201_CREATED)
+        prixtotalproduit = sum(p["total"] for p in produits_achetes)
+
+        nombredemois_restant = int(reste / montant_choisi) if type_paiement == 'mensuel' and montant_choisi else None
+        revenu_total = total_deja_paye
+
+        return Response({
+            "repaiement": type_paiement == 'mensuel' and total_deja_paye > 0,
+            "client": dernier_achat.ClientID.Client_nom,
+            "produits": produits_achetes,
+            "prixtotalproduit": prixtotalproduit,
+            "total_paye": int(total_deja_paye),
+            "reste_a_payer": int(reste),
+            "montant_rendu": montant_rendu,
+            "statut": statut,
+            "Paiement_type": type_paiement,
+            "Paiement_montantchoisi": int(montant_choisi) if montant_choisi else None,
+            "nombredemois_restant": nombredemois_restant,
+            "date_paiement_prochaine": str(prochaine_date) if prochaine_date else None,
+
+            # 👉 FACTURE RENVOYÉE
+            "numero_facture": facture.numero_facture,
+            "facture_id": facture.id,
+
+            "revenu": int(montant_paye),
+            "revenu_total": int(revenu_total)
+        }, status=status.HTTP_201_CREATED)
 
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
@@ -1128,6 +1243,14 @@ class PaiementDeleteAPIView(APIView):
             "montant_supprime": float(montant_supprime),
         }, status=status.HTTP_200_OK)
 
+from rest_framework import generics, status
+from rest_framework.response import Response
+from django.db.models import Sum
+from datetime import datetime
+from decimal import Decimal
+from .models import Paiement, Achat
+from .serializers import PaiementSerializer
+ # ou votre fonction d'envoi SMS
 
 class PaiementUpdateView(generics.UpdateAPIView):
     queryset = Paiement.objects.all()
@@ -1140,130 +1263,59 @@ class PaiementUpdateView(generics.UpdateAPIView):
         if not client_id:
             return Response({"error": "Le champ 'client' est requis."}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            montant_paye = Decimal(request.data.get('Paiement_montant', paiement.Paiement_montant))
-        except:
-            return Response({"error": "Le montant payé est invalide."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if montant_paye < Decimal('50000'):
-            return Response({"error": "Le montant minimum à payer est de 100 000 Ariary."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
         type_paiement = request.data.get('Paiement_type', paiement.Paiement_type).lower()
         if type_paiement not in ['comptant', 'mensuel']:
             return Response({"error": "Type de paiement invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
-        montant_choisi = None
-        date_choisie = None
-        prochaine_date = None
-
+        # -------------------------
+        # Gestion de la date
+        # -------------------------
+        date_choisie_str = request.data.get('Paiement_datechoisi')
         if type_paiement == 'mensuel':
-            montant_choisi_str = request.data.get('Paiement_montantchoisi')
-            date_choisie_str = request.data.get('Paiement_datechoisi')
-
             if not date_choisie_str:
-                return Response({
-                    "error": "La date choisie est requise pour un paiement mensuel."
-                }, status=status.HTTP_400_BAD_REQUEST)
-
+                return Response({"error": "La date choisie est requise pour un paiement mensuel."},
+                                status=status.HTTP_400_BAD_REQUEST)
             try:
                 date_choisie = datetime.strptime(str(date_choisie_str), "%Y-%m-%d").date()
-                prochaine_date = date_choisie
+                paiement.Paiement_datechoisi = date_choisie
             except:
                 return Response({"error": "Date invalide (format attendu : YYYY-MM-DD)."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
-            # Conserver le montant existant si non fourni
-            try:
-                montant_choisi = Decimal(montant_choisi_str) if montant_choisi_str else paiement.Paiement_montantchoisi
-            except:
-                return Response({"error": "Montant mensuel invalide."}, status=status.HTTP_400_BAD_REQUEST)
+        # -------------------------
+        # Sauvegarde
+        # -------------------------
+        paiement.save()
 
-        else:
-            request.data.pop('Paiement_montantchoisi', None)
-            request.data.pop('Paiement_datechoisi', None)
-
+        # -------------------------
+        # Recalcul du reste à payer et statut
+        # -------------------------
         achats_client = Achat.objects.filter(ClientID_id=client_id)
         if not achats_client.exists():
             return Response({"error": "Aucun achat trouvé pour ce client."}, status=status.HTTP_404_NOT_FOUND)
-
-        dernier_achat = achats_client.order_by('-Achat_date').first()
-
-        data = request.data.copy()
-        data['AchatsID'] = dernier_achat.id
-        data['Paiement_montant'] = montant_paye
-
-        if type_paiement == 'mensuel':
-            data['Paiement_montantchoisi'] = montant_choisi
-            data['Paiement_datechoisi'] = prochaine_date
-
-        serializer = self.get_serializer(paiement, data=data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
 
         total_attendu = sum(achat.ProduitID.Produit_prix * achat.Achat_quantite for achat in achats_client)
         total_deja_paye = Paiement.objects.filter(AchatsID__ClientID_id=client_id).aggregate(
             total=Sum('Paiement_montant')
         )['total'] or Decimal('0')
 
-        nouveau_total = total_deja_paye
-        reste = max(total_attendu - nouveau_total, Decimal('0'))
-        statut = "complet" if nouveau_total >= total_attendu else "incomplet"
-        montant_rendu = int(nouveau_total - total_attendu) if nouveau_total > total_attendu else 0
+        reste = max(total_attendu - total_deja_paye, Decimal('0'))
+        statut = "complet" if total_deja_paye >= total_attendu else "incomplet"
 
-        client = dernier_achat.ClientID
-        numero = client.Client_telephone
-
+        # -------------------------
         # Notification SMS
-        envoyer_sms(numero, f"Bonjour {client.Client_nom}, votre paiement de {montant_paye:.0f} Ar a été mis à jour. "
+        # -------------------------
+        client = achats_client.first().ClientID
+        numero = client.Client_telephone
+        envoyer_sms(numero, f"Bonjour {client.Client_nom}, votre date de paiement a été mise à jour. "
                             f"Statut: {statut}. Reste à payer: {reste:.0f} Ar.")
 
-        # # Email aux responsables
-        # responsable = dernier_achat.ResponsableID
-        # vendeur_email = responsable.Responsable_email
-        # admins = Responsable.objects.filter(Responsable_role='admin').values_list('Responsable_email', flat=True)
-
-        # Optionnel : Décommente pour activer l'email
-        # envoyer_email(
-        #     sujet=f"Mise à jour du paiement - {client.Client_nom}",
-        #     message=(f"Le client {client.Client_nom} ({numero}) a modifié un paiement de {montant_paye:.0f} Ar.\n"
-        #              f"Statut : {statut}\nReste à payer : {reste:.0f} Ar.\n"),
-        #     destinataires=list(admins) + [vendeur_email],
-        #     reply_to=vendeur_email
-        # )
-
-        produits_achetes = [
-            {
-                "nom": achat.ProduitID.Produit_nom,
-                "quantite": achat.Achat_quantite,
-                "prix_unitaire": int(achat.ProduitID.Produit_prix),
-                "total": int(achat.ProduitID.Produit_prix * achat.Achat_quantite)
-            }
-            for achat in achats_client
-        ]
-
-        prixtotalproduit = sum(p["total"] for p in produits_achetes)
-        nombredemois_restant = int(reste / montant_choisi) if montant_choisi else None
-
         return Response({
-            "client": {
-                "nom": client.Client_nom,
-                "telephone": client.Client_telephone,
-                "adresse": client.Client_adresse,
-                "cin": client.Client_cin,
-            },
-            "produits": produits_achetes,
-            "prixtotalproduit": prixtotalproduit,
-            "total_paye": int(nouveau_total),
-            "reste_a_payer": int(reste),
-            "montant_rendu": montant_rendu,
+            "message": "Date de paiement mise à jour avec succès",
+            "Paiement_datechoisi": str(paiement.Paiement_datechoisi),
             "statut": statut,
-            "Paiement_type": type_paiement,
-            "Paiement_montantchoisi": int(montant_choisi) if montant_choisi else None,
-            "nombredemois_restant": nombredemois_restant,
-            "date_paiement_prochaine": str(prochaine_date) if prochaine_date else None
+            "reste_a_payer": int(reste)
         }, status=status.HTTP_200_OK)
-
 
 from django.db.models import F, Sum, ExpressionWrapper, DecimalField
 class ChiffreAffairesAPIView(APIView):
@@ -1690,65 +1742,156 @@ from achats.models import Achat
 #         return JsonResponse({"error": str(e)}, status=400)
 
 
+import uuid
+import requests
+from decimal import Decimal
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from rest_framework import generics, status
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import Achat, Paiement, Facture
+from .serializers import PaiementSerializer
+from .utils import get_access_token
+
+class CPaiementCreateView(generics.CreateAPIView):
+    queryset = Paiement.objects.all()
+    serializer_class = PaiementSerializer
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        client_id = data.get("client")
+        type_paiement = data.get("Paiement_type", "unique")
+        montant_paye = Decimal(data.get("montant", 0))
+
+        # Vérifications
+        if not client_id:
+            return Response({"error": "Client invalide."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if montant_paye < 10:
+            return Response({"error": "Montant invalide (min 100 000 Ar)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Récupérer le dernier achat incomplet
+        achats_incomplets = Achat.objects.filter(ClientID_id=client_id).order_by('id')
+        if not achats_incomplets.exists():
+            return Response({"error": "Aucun achat trouvé."}, status=status.HTTP_404_NOT_FOUND)
+
+        dernier_achat = achats_incomplets[0]
+        total_attendu = dernier_achat.ProduitID.Produit_prix * dernier_achat.Achat_quantite
+
+        # Gestion du paiement mensuel
+        montant_choisi = None
+        prochaine_date = None
+        if type_paiement == 'mensuel':
+            dernier_paiement = Paiement.objects.filter(
+                AchatsID__ClientID_id=client_id,
+                Paiement_type='mensuel'
+            ).order_by('-Paiement_datechoisi').first()
+
+            if dernier_paiement and dernier_paiement.Paiement_montantchoisi:
+                montant_choisi = dernier_paiement.Paiement_montantchoisi
+                date_choisie = dernier_paiement.Paiement_datechoisi or datetime.today().date()
+                mois_a_ajouter = int(montant_paye / montant_choisi) if montant_choisi > 0 else 0
+                prochaine_date = date_choisie + relativedelta(months=mois_a_ajouter)
+            else:
+                montant_choisi = montant_paye
+                prochaine_date = datetime.today().date()
+
+        # ---------------------------
+        # Créer le paiement
+        # ---------------------------
+        paiement_data = {
+            'AchatsID': dernier_achat.id,
+            'Paiement_montant': montant_paye,
+            'Paiement_mode': data.get('Paiement_mode'),
+            'Paiement_type': type_paiement,
+            'id_responsable': 1,  # id_responsable fixe
+        }
+        if type_paiement == 'mensuel':
+            paiement_data['Paiement_montantchoisi'] = montant_choisi
+            paiement_data['Paiement_datechoisi'] = prochaine_date
+
+        serializer = self.get_serializer(data=paiement_data)
+        serializer.is_valid(raise_exception=True)
+        paiement = serializer.save()
+
+        # ---------------------------
+        # Orange Money WebPay
+        # ---------------------------
+        if data.get("Paiement_mode") == "orange":
+            try:
+                phone = dernier_achat.ClientID.Client_telephone
+                if phone.startswith("0"):
+                    phone = "261" + phone[1:]
+
+                token = get_access_token()
+                order_id = f"P{paiement.id}-{uuid.uuid4().hex[:6]}"
+                montant_om = int(montant_paye)
+
+                payload = {
+                    "merchant_code": MERCHANT_CODE,
+                    "merchant_key": MERCHANT_KEY,
+                    "amount": str(montant_om),
+                    "currency": "MGA",
+                    "order_id": order_id,
+                    "customer_msisdn": phone,
+                    "return_url": "https://ventes.auf-sarlu.mg",
+                    "cancel_url": "https://ventes.auf-sarlu.mg",
+                    "notif_url": "https://ventes.auf-sarlu.mg/api/payment/callback/",
+                    "lang": "fr"
+                }
+
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+
+                url = "https://api.orange.com/orange-money-webpay/mg/v1/webpayment"
+                response = requests.post(url, json=payload, headers=headers)
+                resp_json = response.json()
+
+                # Enregistrer la référence OM
+                paiement.Paiement_reference = order_id
+                paiement.save()
+
+                return Response({
+                    "message": "Paiement initié",
+                    "paiement_id": paiement.id,
+                    "payment_url": resp_json.get("payment_url"),
+                    "reference": order_id
+                }, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response({"error": "Erreur OM", "details": str(e)},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------------------------
+        # Paiement normal
+        # ---------------------------
+        return Response({
+            "message": "Paiement enregistré",
+            "paiement_id": paiement.id
+        }, status=status.HTTP_201_CREATED)
 
 
-import json, base64, requests
+
+import json, base64, requests, uuid
 from decimal import Decimal
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from .models import Achat, Paiement, Facture
+from .utils import get_access_token  # fonction que tu avais pour OM
+import os
 
-
-# ==== CONFIG SANDBOX ====
-MVOLA_CONSUMER_KEY = "OK9Uk26e2kQhcRx1a6YK7abZbxca"
-MVOLA_CONSUMER_SECRET = "GvhXrTyorPrwrKHRm8lHmCedFhUa"
-MVOLA_MERCHANT_MSISDN = "0343500004"  # Compte marchand sandbox
-API_USER = "eyJ4NXQjUzI1NiI6Ik1UZGxNemd4Wmpka01qSTRaakptWVRnd01EUmlZak0xTW1SaE5qbGhNR00wTVdOa09XTm1PVGhtTXpVeU0yVTFORFk0TlRZeE4yTTVNbVJtTldRNE9BPT0iLCJraWQiOiJnYXRld2F5X2NlcnRpZmljYXRlX2FsaWFzIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ==.eyJzdWIiOiJjaHJpc3RpbmVyYXNvYW5hbWJpbmluYUBnbWFpbC5jb21AY2FyYm9uLnN1cGVyIiwiYXBwbGljYXRpb24iOnsib3duZXIiOiJjaHJpc3RpbmVyYXNvYW5hbWJpbmluYUBnbWFpbC5jb20iLCJ0aWVyUXVvdGFUeXBlIjpudWxsLCJ0aWVyIjoiVW5saW1pdGVkIiwibmFtZSI6Imdlc3Rpb24iLCJpZCI6MTQ4OCwidXVpZCI6IjM5MWZmY2IzLWU0MTYtNDllYy1hMWJmLWVlZTkyZTNjY2Q2OCJ9LCJpc3MiOiJodHRwczpcL1wvZGV2ZWxvcGVyLm12b2xhLm1nXC9vYXV0aDJcL3Rva2VuIiwidGllckluZm8iOnsiQnJvbnplIjp7InRpZXJRdW90YVR5cGUiOiJyZXF1ZXN0Q291bnQiLCJncmFwaFFMTWF4Q29tcGxleGl0eSI6MCwiZ3JhcGhRTE1heERlcHRoIjowLCJzdG9wT25RdW90YVJlYWNoIjp0cnVlLCJzcGlrZUFycmVzdExpbWl0IjowLCJzcGlrZUFycmVzdFVuaXQiOm51bGx9fSwia2V5dHlwZSI6IlNBTkRCT1giLCJwZXJtaXR0ZWRSZWZlcmVyIjoiIiwic3Vic2NyaWJlZEFQSXMiOlt7InN1YnNjcmliZXJUZW5hbnREb21haW4iOiJjYXJib24uc3VwZXIiLCJuYW1lIjoiTVZPTEEtTWVyY2hhbnQtUGF5LUFQSSIsImNvbnRleHQiOiJcL212b2xhXC9tbVwvdHJhbnNhY3Rpb25zXC90eXBlXC9tZXJjaGFudHBheVwvMS4wLjAiLCJwdWJsaXNoZXIiOiJhZG1pbiIsInZlcnNpb24iOiIxLjAuMCIsInN1YnNjcmlwdGlvblRpZXIiOiJCcm9uemUifV0sInRva2VuX3R5cGUiOiJhcGlLZXkiLCJwZXJtaXR0ZWRJUCI6IiIsImlhdCI6MTc2MjI4NTAxMCwianRpIjoiNTk4NjRjZjQtM2ZjYi00NGFhLTg2NmMtN2Y1MDJlZTI5MjRjIn0=.hJbIf1UkSonZjFhyXMJUC7ja59rObQWbSVF4rnYLNl0BZZqzm0s_eOTSb-kG6fGxQxsxgd4CtaYQndcyU9WrYjzjuIqGwgrsEziNe8MBlMPO25uzXRq8B_ztDeRbokg-7gZkjWdBUhvODF61yNj67jn1N37XF7L38NtHxL_U_UQroBfI6DBI-0BgO7oyKcKiweOUtjVqZB1J9bEvNesIIg9AG1Au2Ui6EFITE8qa-d3aqmNtTEgQwBY9vSlDNXjXc-kM51UfNe_dsvk9KTzbIQthy2lfUuUd0K4n7K6iUStmvBEeZ6fnKcDn-FroUEsFcvjO-wYHPlZ0q3I7mFugKA=="       # API Key sandbox
-
-
-def get_mvola_token():
-    url = "https://api.mvola.mg/sandbox/oauth/token"
-    auth = base64.b64encode(f"{MVOLA_CONSUMER_KEY}:{MVOLA_CONSUMER_SECRET}".encode()).decode()
-
-    headers = {
-        "Authorization": f"Basic {auth}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-
-    response = requests.post(url, data="grant_type=client_credentials", headers=headers)
-    return response.json().get("access_token")
-
-
-def envoyer_paiement_mvola(numero_client, montant):
-    token = get_mvola_token()
-
-    url = "https://api.mvola.mg/sandbox/transactions"
-    headers = {
-        "Version": "1.0",
-        "X-Country": "MG",
-        "X-Currency": "MGA",
-        "Authorization": f"Bearer {token}",
-        "X-API-User": API_USER,
-        "X-API-Key": API_USER,
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "amount": str(montant),
-        "descriptionText": "Paiement Test Sandbox",
-        "financialTransactionType": "merchantPay",
-        "debitParty": [{"key": "msisdn", "value": numero_client}],
-        "creditParty": [{"key": "msisdn", "value": MVOLA_MERCHANT_MSISDN}]
-    }
-
-    r = requests.post(url, json=payload, headers=headers)
-    return r.json()
-
+MERCHANT_CODE = os.getenv("OM_MERCHANT_CODE")
+MERCHANT_KEY = os.getenv("OM_MERCHANT_KEY")
 
 @csrf_exempt
-def lancer_paiement(request):
+def lancer_paiement_orange(request):
+    """Lance un paiement Orange Money"""
     if request.method != "POST":
         return JsonResponse({"error": "Méthode non autorisée"}, status=405)
 
@@ -1756,80 +1899,83 @@ def lancer_paiement(request):
         data = json.loads(request.body)
 
         id_achat = data.get("idachat")
-        numero_client = data.get("numero_client")
         montant = Decimal(data.get("montant", 0))
-        mode = data.get("mode", "mvola")
+        client_telephone = data.get("numero_client")
         type_paiement = data.get("Paiement_type", "comptant").lower()
-        mois_choisi = max(1, min(12, int(data.get("mois_choisi", 1))))
-        date_str = data.get("Paiement_datechoisi")
 
         achat = get_object_or_404(Achat, id=id_achat)
         client = achat.ClientID
 
-        prochaine_date = None
-        if type_paiement == "mensuel":
-            date_debut = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else datetime.today().date()
-            prochaine_date = date_debut + relativedelta(months=mois_choisi)
-
-        montant_mois = (montant / mois_choisi).quantize(Decimal("1.")) if type_paiement == "mensuel" else None
-
+        # Créer le paiement dans la base
         paiement = Paiement.objects.create(
             AchatsID=achat,
-            numero_client=numero_client,
             Paiement_montant=montant,
-            Paiement_mode=mode,
+            Paiement_mode="orange",
             Paiement_type=type_paiement,
-            Paiement_montantchoisi=montant_mois,
-            Paiement_datechoisi=prochaine_date,
             statut="en_attente"
         )
 
-        # ======== APPEL MVOLA SANDBOX ========
-        if mode == "mvola":
-            result = envoyer_paiement_mvola(numero_client, montant)
-            print("MVOLA SANDBOX RESULT:", result)
+        # Préparer le numéro en format international
+        if client_telephone.startswith("0"):
+            client_telephone = "261" + client_telephone[1:]
 
-            if result.get("transactionStatus") == "completed":
-                paiement.statut = "valide"
-                paiement.save()
+        # Créer l'order_id unique
+        order_id = f"P{paiement.id}-{uuid.uuid4().hex[:6]}"
 
-        facture = Facture.objects.filter(achat__ClientID=client).order_by('-id').first()
-        if not facture:
-            last_facture = Facture.objects.order_by('-id').first()
-            last_num = 0
-            if last_facture and last_facture.numero_facture:
-                match = re.search(r'FACT-(\d+)', last_facture.numero_facture)
-                if match:
-                    last_num = int(match.group(1))
-            numero_facture = f"FACT-{last_num + 1:04d}"
-            facture = Facture.objects.create(achat=achat, numero_facture=numero_facture)
+        # Token Orange Money
+        token = get_access_token()
+
+        payload = {
+            "merchant_code": MERCHANT_CODE,
+            "merchant_key": MERCHANT_KEY,
+            "amount": str(int(montant)),
+            "currency": "MGA",
+            "order_id": order_id,
+            "customer_msisdn": client_telephone,
+            "return_url": "https://ventes.auf-sarlu.mg",
+            "cancel_url": "https://ventes.auf-sarlu.mg",
+            "notif_url": "https://ventes.auf-sarlu.mg/api/payment/callback/",
+            "lang": "fr"
+        }
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        url = "https://api.orange.com/orange-money-webpay/mg/v1/webpayment"  # PROD Madagascar
+        response = requests.post(url, json=payload, headers=headers)
+        resp_json = response.json()
+
+        # Enregistrer la référence
+        paiement.Paiement_reference = order_id
+        paiement.save()
 
         return JsonResponse({
-            "message": "Paiement MVola (Sandbox) lancé.",
-            "statut_paiement": paiement.statut,
-            "id_client": client.id,
-            "numero_facture": facture.numero_facture,
-        }, status=200)
+            "message": "Paiement initié",
+            "paiement_id": paiement.id,
+            "payment_url": resp_json.get("payment_url"),
+            "reference": order_id
+        }, status=201)
 
     except Exception as e:
-        print("Erreur paiement sandbox:", e)
         return JsonResponse({"error": str(e)}, status=400)
 
 
 @csrf_exempt
-def paiement_callback(request):
-    """MVola envoie ici le statut final du paiement"""
-    if request.method == "POST":
+def callback_orange(request):
+    """Callback Orange Money pour mettre à jour le statut"""
+    if request.method != "POST":
+        return JsonResponse({"error": "Méthode non autorisée"}, status=405)
+
+    try:
         data = json.loads(request.body)
-        transaction_ref = data.get("requestingOrganisationTransactionReference")
-        statut_mv = data.get("transactionStatus")  # ex: "SUCCESSFUL" ou "FAILED"
+        transaction_ref = data.get("order_id")  # correspond à Paiement_reference
+        statut_om = data.get("status")  # ex: "SUCCESSFUL" ou "FAILED"
 
-        try:
-            paiement = PaiementMobile.objects.get(transaction_reference=transaction_ref)
-        except PaiementMobile.DoesNotExist:
-            return JsonResponse({"error": "Transaction non trouvée"}, status=404)
+        paiement = Paiement.objects.get(Paiement_reference=transaction_ref)
 
-        if statut_mv == "SUCCESSFUL":
+        if statut_om == "SUCCESSFUL":
             paiement.statut = "reussi"
         else:
             paiement.statut = "echoue"
@@ -1837,99 +1983,178 @@ def paiement_callback(request):
         paiement.save()
         return JsonResponse({"message": "Statut mis à jour"})
 
-    return JsonResponse({"error": "Méthode non autorisée"}, status=405)
+    except Paiement.DoesNotExist:
+        return JsonResponse({"error": "Transaction non trouvée"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
 
 
+import os, json, uuid, base64, requests
+from decimal import Decimal
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from rest_framework import generics, status
+from rest_framework.response import Response
+from .models import Paiement, Achat, Facture
+from .serializers import PaiementSerializer
 
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-import paypalrestsdk
-import logging
+# 🔹 Orange Money credentials
+MERCHANT_CODE = os.getenv("OM_MERCHANT_CODE")
+MERCHANT_KEY = os.getenv("OM_MERCHANT_KEY")
+CLIENT_ID = os.getenv("OM_CLIENT_ID")
+CLIENT_SECRET = os.getenv("OM_CLIENT_SECRET")
 
-# Configure PayPal SDK (Sandbox)
-paypalrestsdk.configure({
-    "mode": "sandbox",  # sandbox ou live
-    "client_id": "ATgPT_M4ljSfc6x6Tqw7KUxOeRaZJKnWN8ptu2UEGVyGnT5jq2gER6qxPa96gWpNWlApTIpL5ZDGzFBM",
-    "client_secret": "EDwb9LYjdUrquTg0Ft5Bg4Ui_GYoWzxR08dWDY0l8-ksLvx91CrmezQ7HKfS6kZxAlHTIuThDZ_cCaLK"
-})
+def get_access_token():
+    url = "https://api.orange.com/oauth/v3/token"
+    auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    auth_base64 = base64.b64encode(auth_string.encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth_base64}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {"grant_type": "client_credentials"}
+    response = requests.post(url, data=data, headers=headers)
+    response.raise_for_status()
+    return response.json().get("access_token")
 
-logger = logging.getLogger(__name__)
 
-# -----------------------------
-# Créer le paiement
-# -----------------------------
-def creer_paiement_paypal(request, achat_id):
-    achat = get_object_or_404(Achat, id=achat_id)
+class PaiementCreateViews(generics.CreateAPIView):
+    queryset = Paiement.objects.all()
+    serializer_class = PaiementSerializer
 
-    # Crée un paiement en attente dans la base
-    paiement = Paiement.objects.create(
-        AchatsID=achat,
-        Paiement_montant=achat.Achat_montant,
-        Paiement_mode="paypal",
-        Paiement_type="comptant",
-        statut="en_attente"
-    )
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        client_id = data.get("client")
+        type_paiement = data.get("Paiement_type", "unique")
+        montant_paye = Decimal(data.get("montant", 0))
 
-    # Création du paiement PayPal
-    payment = paypalrestsdk.Payment({
-        "intent": "sale",
-        "payer": {"payment_method": "paypal"},
-        "transactions": [{
-            "amount": {
-                "total": str(achat.Achat_montant),  # montant correct
-                "currency": "USD"
-            },
-            "description": f"Achat #{achat.id}"
-        }],
-        "redirect_urls": {
-            "return_url": f"http://localhost:8000/paiement/valider/{paiement.id}/",
-            "cancel_url": f"http://localhost:8000/paiement/annuler/{paiement.id}/"
+        # Vérifications
+        if not client_id:
+            return Response({"error": "Client invalide."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if montant_paye < 10:
+            return Response({"error": "Montant invalide (min 100 000 Ar)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Récupérer le dernier achat incomplet
+        achats_incomplets = Achat.objects.filter(ClientID_id=client_id).order_by('id')
+        if not achats_incomplets.exists():
+            return Response({"error": "Aucun achat trouvé."}, status=status.HTTP_404_NOT_FOUND)
+
+        dernier_achat = achats_incomplets[0]
+        total_attendu = dernier_achat.ProduitID.Produit_prix * dernier_achat.Achat_quantite
+
+        # Gestion du paiement mensuel
+        montant_choisi = None
+        prochaine_date = None
+        if type_paiement == 'mensuel':
+            dernier_paiement = Paiement.objects.filter(
+                AchatsID__ClientID_id=client_id,
+                Paiement_type='mensuel'
+            ).order_by('-Paiement_datechoisi').first()
+
+            if dernier_paiement and dernier_paiement.Paiement_montantchoisi:
+                montant_choisi = dernier_paiement.Paiement_montantchoisi
+                date_choisie = dernier_paiement.Paiement_datechoisi or datetime.today().date()
+                mois_a_ajouter = int(montant_paye / montant_choisi) if montant_choisi > 0 else 0
+                prochaine_date = date_choisie + relativedelta(months=mois_a_ajouter)
+            else:
+                montant_choisi = montant_paye
+                prochaine_date = datetime.today().date()
+
+        # ---------------------------
+        # Créer le paiement
+        # ---------------------------
+        paiement_data = {
+            'AchatsID': dernier_achat.id,
+            'Paiement_montant': montant_paye,
+            'Paiement_mode': data.get('Paiement_mode'),
+            'Paiement_type': type_paiement,
+            'id_responsable': 1,  # 🟢 id_responsable ajouté
         }
-    })
+        if type_paiement == 'mensuel':
+            paiement_data['Paiement_montantchoisi'] = montant_choisi
+            paiement_data['Paiement_datechoisi'] = prochaine_date
 
-    if payment.create():
-        # Récupère le lien de redirection PayPal
-        for link in payment.links:
-            if link.rel == "approval_url":
-                approval_url = str(link.href)
-                return JsonResponse({"redirect_url": approval_url})
-        return JsonResponse({"error": "Aucune URL de redirection trouvée."}, status=400)
-    else:
-        logger.error(payment.error)
-        return JsonResponse({"error": payment.error}, status=400)
+        serializer = self.get_serializer(data=paiement_data)
+        serializer.is_valid(raise_exception=True)
+        paiement = serializer.save()   # 🟩 paiement enregistré
 
-# -----------------------------
-# Valider le paiement après retour PayPal
-# -----------------------------
-def valider_paiement_paypal(request, paiement_id):
-    paiement = get_object_or_404(Paiement, id=paiement_id)
-    payment_id = request.GET.get("paymentId")
-    payer_id = request.GET.get("PayerID")
+        # ---------------------------
+        # 🟧 Orange Money WebPay
+        # ---------------------------
+        if data.get("Paiement_mode") == "orange":
+            try:
+                phone = dernier_achat.ClientID.Client_telephone
+                if phone.startswith("0"):
+                    phone = "261" + phone[1:]
 
-    if not payment_id or not payer_id:
-        paiement.statut = "echoue"
-        paiement.save()
-        return JsonResponse({"message": "❌ Paramètres manquants pour valider le paiement."}, status=400)
+                token = get_access_token()
+                order_id = f"P{paiement.id}-{uuid.uuid4().hex[:6]}"
+                montant_om = int(montant_paye)
 
-    payment = paypalrestsdk.Payment.find(payment_id)
+                payload = {
+                    "merchant_code": MERCHANT_CODE,
+                    "merchant_key": MERCHANT_KEY,
+                    "amount": str(montant_om),
+                    "currency": "MGA",
+                    "order_id": order_id,
+                    "customer_msisdn": phone,
+                    "return_url": "https://ventes.auf-sarlu.mg",
+                    "cancel_url": "https://ventes.auf-sarlu.mg",
+                    "notif_url": "https://ventes.auf-sarlu.mg/api/payment/callback/",
+                    "lang": "fr"
+                }
 
-    if payment.execute({"payer_id": payer_id}):
-        paiement.statut = "reussi"
-        paiement.transaction_reference = payment_id
-        paiement.save()
-        return JsonResponse({"message": "✅ Paiement PayPal confirmé.", "paiement_id": paiement.id})
-    else:
-        logger.error(payment.error)
-        paiement.statut = "echoue"
-        paiement.save()
-        return JsonResponse({"message": "❌ Erreur pendant la validation PayPal.", "details": payment.error})
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
 
-# -----------------------------
-# Annuler le paiement
-# -----------------------------
-def annuler_paiement_paypal(request, paiement_id):
-    paiement = get_object_or_404(Paiement, id=paiement_id)
-    paiement.statut = "echoue"  # ou "annule"
-    paiement.save()
-    return JsonResponse({"message": "Le paiement a été annulé."})
+                url = "https://api.orange.com/orange-money-webpay/mg/v1/webpayment"
+                response = requests.post(url, json=payload, headers=headers)
+                resp_json = response.json()
 
+                paiement.Paiement_reference = order_id
+                paiement.save()
+
+                return Response({
+                    "message": "Paiement initié",
+                    "paiement_id": paiement.id,
+                    "payment_url": resp_json.get("payment_url"),
+                    "reference": order_id
+                }, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response({"error": "Erreur OM", "details": str(e)},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------------------------
+        # Paiement normal
+        # ---------------------------
+        return Response({
+            "message": "Paiement enregistré",
+            "paiement_id": paiement.id
+        }, status=status.HTTP_201_CREATED)
+
+# ---------------------------
+# Callback Orange Money
+# ---------------------------
+@csrf_exempt
+def om_callback(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST only"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        reference = data.get("order_id")
+        statut = data.get("status")
+
+        paiement = Paiement.objects.filter(Paiement_reference=reference).first()
+        if paiement:
+            paiement.statut = "reussi" if statut == "SUCCESS" else "echec"
+            paiement.save()
+
+        return JsonResponse({"status": "ok"})
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)

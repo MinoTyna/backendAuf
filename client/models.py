@@ -18,6 +18,7 @@ class Client(models.Model):
     date_creation = models.DateTimeField(auto_now_add=True)
     password = models.CharField(max_length=128, null=True, blank=True)
     Client_role = models.CharField(max_length=20, default='client')
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.Client_prenom} {self.Client_nom}"
@@ -26,3 +27,12 @@ class Client(models.Model):
         if self.Produit_photo:
             return f"https://rcbhcqyypiaatvcyolnw.supabase.co/storage/v1/object/public/media/{self.Client_photo}"
         return None
+
+class ClientOTP(models.Model):
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.email} - {self.code} ({'Vérifié' if self.verified else 'Non vérifié'})"

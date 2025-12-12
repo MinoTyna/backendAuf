@@ -16,6 +16,8 @@ class Produit(models.Model):
     Produit_description = models.TextField(blank=True, null=True)
     Produit_reference = models.TextField(blank=True, null=True)
     Produit_prix = models.IntegerField()
+    is_active = models.BooleanField(default=True)
+
     
     # ⚡ Supabase Storage → stocker le nom du fichier
     Produit_photo = models.ImageField(upload_to='', blank=True, null=True)

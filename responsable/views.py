@@ -214,19 +214,130 @@ from django.contrib.auth.hashers import check_password
 from .models import Responsable
 from .serializers import ResponsableSerializer
 
+# class ConnexionResponsableAPIView(APIView):
+#     def post(self, request):
+#         data = request.data
+#         email = data.get("Responsable_email")
+#         password = data.get("password")
+
+#         try:
+#             responsable = Responsable.objects.get(Responsable_email=email)
+
+#             if not check_password(password, responsable.password):
+#                 return Response({"error": "Mot de passe incorrect"}, status=400)
+
+#             # Génération du JWT
+#             refresh = RefreshToken.for_user(responsable)
+#             refresh["email"] = responsable.Responsable_email
+#             refresh["nom"] = responsable.Responsable_nom
+#             refresh["role"] = responsable.Responsable_role
+#             refresh["photo"] = responsable.Responsable_photo.url if responsable.Responsable_photo else ""
+
+#             access_token = str(refresh.access_token)
+
+#             serializer = ResponsableSerializer(responsable)
+
+#             # Création de la réponse avec cookie HTTP-only
+#             response = Response({
+#             "user": serializer.data,
+#             "message": "Connexion réussie",
+#             "token": access_token  # ✅ envoyé aussi dans le body pour localStorage
+#                }, status=status.HTTP_200_OK)
+
+
+#             response.set_cookie(
+#             key="token",
+#             value=access_token,
+#             httponly=True,        # cookie non accessible par JS
+#             secure=True,          # obligatoire si HTTPS
+#             samesite="None",      # nécessaire pour cross-domain
+#             max_age=60 * 60 * 24 * 7,  # 7 jours
+#             path="/",
+#         )
+
+
+#             return response
+
+#         except Responsable.DoesNotExist:
+#             return Response({"error": "Email non trouvé"}, status=400)
+
+
+import random
+from django.core.mail import send_mail
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.contrib.auth.hashers import check_password
+from .models import Responsable
+from .serializers import ResponsableSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core.cache import cache  # pour stocker temporairement le code
+
+# Connexion + envoi OTP
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.contrib.auth.hashers import check_password
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core.cache import cache
+from django.core.mail import send_mail
+import random
+from .models import Responsable
+from .serializers import ResponsableSerializer
+
 class ConnexionResponsableAPIView(APIView):
     def post(self, request):
         data = request.data
-        email = data.get("Responsable_email")
+        email = data.get("email")
         password = data.get("password")
 
+        if not email or not password:
+            return Response({"error": "Email et mot de passe requis"}, status=400)
+
         try:
-            responsable = Responsable.objects.get(Responsable_email=email)
+            responsable = Responsable.objects.filter(Responsable_email=email).first()
+            if not responsable:
+                return Response({"error": "Email non trouvé"}, status=400)
 
             if not check_password(password, responsable.password):
                 return Response({"error": "Mot de passe incorrect"}, status=400)
 
-            # Génération du JWT
+            # Génération OTP
+            otp_code = random.randint(100000, 999999)
+            cache.set(f"otp_{responsable.id}", otp_code, timeout=600)  # 10 min
+
+            # Envoi OTP par email
+            send_mail(
+                subject="Votre code de vérification AUF-SARL",
+                message=f"Bonjour {responsable.Responsable_nom},\nVotre code de vérification est : {otp_code}\nValable 10 minutes.",
+                from_email="no-reply@votreapp.com",
+                recipient_list=[responsable.Responsable_email],
+                fail_silently=False,
+            )
+
+            # Retour JSON attendu par le front
+            serializer = ResponsableSerializer(responsable)
+            return Response({
+               
+                "user": serializer.data
+            }, status=200)
+
+        except Exception as e:
+            return Response({"error": f"Erreur serveur : {str(e)}"}, status=500)
+
+# Vérification OTP + génération JWT
+class VerifyOTPAPIView(APIView):
+    def post(self, request):
+        data = request.data
+        email = data.get("email")
+        otp = data.get("otp")
+
+        try:
+            responsable = Responsable.objects.get(Responsable_email=email)
+            cached_otp = cache.get(f"otp_{responsable.id}")
+
+            if cached_otp is None or str(cached_otp) != str(otp):
+                return Response({"error": "Code OTP invalide ou expiré"}, status=400)
+
             refresh = RefreshToken.for_user(responsable)
             refresh["email"] = responsable.Responsable_email
             refresh["nom"] = responsable.Responsable_nom
@@ -234,27 +345,25 @@ class ConnexionResponsableAPIView(APIView):
             refresh["photo"] = responsable.Responsable_photo.url if responsable.Responsable_photo else ""
 
             access_token = str(refresh.access_token)
-
             serializer = ResponsableSerializer(responsable)
 
-            # Création de la réponse avec cookie HTTP-only
             response = Response({
-            "user": serializer.data,
-            "message": "Connexion réussie",
-            "token": access_token  # ✅ envoyé aussi dans le body pour localStorage
-               }, status=status.HTTP_200_OK)
-
+                "user": serializer.data,
+                "message": "Connexion réussie",
+                "token": access_token
+            }, status=status.HTTP_200_OK)
 
             response.set_cookie(
-            key="token",
-            value=access_token,
-            httponly=True,        # cookie non accessible par JS
-            secure=True,          # obligatoire si HTTPS
-            samesite="None",      # nécessaire pour cross-domain
-            max_age=60 * 60 * 24 * 7,  # 7 jours
-            path="/",
-        )
+                key="token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                max_age=60*60*24*7,
+                path="/",
+            )
 
+            cache.delete(f"otp_{responsable.id}")
 
             return response
 
@@ -382,30 +491,164 @@ class PasswordResetConfirmAPIView(APIView):
         return Response({"message": "Mot de passe réinitialisé avec succès"}, status=200)
 
 
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from django.contrib.auth.hashers import make_password
+# from .models import Responsable
+
+# class CheckEmailAPIView(APIView):
+#     def post(self, request):
+#         email = request.data.get("email")
+#         try:
+#             responsable = Responsable.objects.get(Responsable_email=email)
+#             return Response({"id": responsable.id}, status=200)
+#         except Responsable.DoesNotExist:
+#             return Response({"error": "Email introuvable"}, status=404)
+
+# class SimplePasswordResetAPIView(APIView):
+#     def post(self, request):
+#         responsable_id = request.data.get("id")
+#         new_password = request.data.get("new_password")
+
+#         try:
+#             responsable = Responsable.objects.get(id=responsable_id)
+#             responsable.password = make_password(new_password)
+#             responsable.save()
+#             return Response({"message": "Mot de passe modifié avec succès"}, status=200)
+#         except Responsable.DoesNotExist:
+#             return Response({"error": "Responsable introuvable"}, status=404)
+
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.contrib.auth.hashers import make_password
-from .models import Responsable
+from django.contrib.auth.hashers import make_password, check_password
+from django.core.mail import send_mail
+from django.utils import timezone
+from datetime import timedelta
+# from .models import Responsable, Client
+from django.db import models
+import random
 
-class CheckEmailAPIView(APIView):
+# Modèle OTP
+class OTP(models.Model):
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    verified = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = f"{random.randint(100000, 999999)}"
+        super().save(*args, **kwargs)
+
+
+# ------------------ CONNEXION ------------------
+class LoginAPIView(APIView):
+    def post(self, request):
+        email_or_name = request.data.get("email")
+        password = request.data.get("password")
+        is_email = "@" in email_or_name
+
+        try:
+            if is_email:
+                user = Responsable.objects.get(Responsable_email=email_or_name)
+            else:
+                user = Client.objects.get(Client_nom=email_or_name)
+        except (Responsable.DoesNotExist, Client.DoesNotExist):
+            return Response({"error": "Utilisateur introuvable"}, status=404)
+
+        if not check_password(password, user.password):
+            return Response({"error": "Mot de passe incorrect"}, status=400)
+
+        # Ici tu peux générer un JWT réel si besoin
+        token = "fake-jwt-token"
+
+        user_data = {
+            "id": user.id,
+            "nom": getattr(user, "Responsable_nom", getattr(user, "Client_nom", "")),
+            "prenom": getattr(user, "Responsable_prenom", getattr(user, "Client_prenom", "")),
+            "role": getattr(user, "Responsable_role", getattr(user, "Client_role", "client"))
+        }
+
+        return Response({"user": user_data, "token": token}, status=200)
+
+
+# ------------------ MOT DE PASSE OUBLIÉ ------------------
+import random
+from datetime import timedelta
+from django.utils import timezone
+from django.core.mail import send_mail
+from django.contrib.auth.hashers import make_password
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import Responsable, ResponsableOTP
+
+class ForgotPasswordAPIView(APIView):
+    """Vérifier email et envoyer OTP"""
     def post(self, request):
         email = request.data.get("email")
         try:
             responsable = Responsable.objects.get(Responsable_email=email)
-            return Response({"id": responsable.id}, status=200)
         except Responsable.DoesNotExist:
             return Response({"error": "Email introuvable"}, status=404)
 
-class SimplePasswordResetAPIView(APIView):
+        code = str(random.randint(100000, 999999))  # 6 chiffres
+        otp_obj = ResponsableOTP.objects.create(email=email, code=code)
+
+        # Envoi OTP par email
+        try:
+            send_mail(
+                subject="Votre code OTP AUF-SARL",
+                message=f"Bonjour,\n\nVotre code de vérification est : {code}\nIl expire dans 10 minutes.",
+                from_email=None,  # utilisera DEFAULT_FROM_EMAIL
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return Response({"error": f"Impossible d'envoyer l'email : {e}"}, status=500)
+
+        return Response({"message": "OTP envoyé à votre email"}, status=200)
+
+
+class VerifyOTPAPIViews(APIView):
+    """Vérifier OTP"""
     def post(self, request):
-        responsable_id = request.data.get("id")
+        email = request.data.get("email")
+        code = request.data.get("otp")
+        try:
+            otp_obj = ResponsableOTP.objects.get(email=email, code=code, verified=False)
+        except ResponsableOTP.DoesNotExist:
+            return Response({"error": "Code OTP invalide"}, status=400)
+
+        if otp_obj.created_at + timedelta(minutes=10) < timezone.now():
+            return Response({"error": "OTP expiré"}, status=400)
+
+        otp_obj.verified = True
+        otp_obj.save()
+        return Response({"message": "OTP vérifié"}, status=200)
+
+
+class ResetPasswordAPIView(APIView):
+    """Réinitialiser mot de passe après OTP"""
+    def post(self, request):
+        email = request.data.get("email")
+        otp_code = request.data.get("otp")
         new_password = request.data.get("new_password")
 
         try:
-            responsable = Responsable.objects.get(id=responsable_id)
-            responsable.password = make_password(new_password)
-            responsable.save()
-            return Response({"message": "Mot de passe modifié avec succès"}, status=200)
+            otp_obj = ResponsableOTP.objects.get(email=email, code=otp_code, verified=True)
+        except ResponsableOTP.DoesNotExist:
+            return Response({"error": "OTP invalide ou non vérifié"}, status=400)
+
+        try:
+            responsable = Responsable.objects.get(Responsable_email=email)
         except Responsable.DoesNotExist:
             return Response({"error": "Responsable introuvable"}, status=404)
+
+        responsable.password = make_password(new_password)
+        responsable.save()
+        otp_obj.delete()
+
+        return Response({"message": "Mot de passe réinitialisé avec succès"}, status=200)

@@ -54,9 +54,20 @@ class ProduitDeleteAPIView(APIView):
             produit = Produit.objects.get(id=produit_id)
         except Produit.DoesNotExist:
             return Response({"error": "Produit introuvable."}, status=status.HTTP_404_NOT_FOUND)
-
-        produit.delete()
+        produit.is_active = False   # Désactivation
+        produit.save()
         return Response({"message": "Produit supprimÃ© avec succÃ¨s."}, status=status.HTTP_200_OK)
+class ProduitActivateAPIView(APIView):
+    def put(self, request, produit_id):
+        try:
+            produit = Produit.objects.get(id=produit_id)
+        except Produit.DoesNotExist:
+            return Response({"error": "produit introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        produit.is_active = True
+        produit.save()
+
+        return Response({"message": "produit activé avec succès."}, status=status.HTTP_200_OK)
 
 
 from supabase import create_client

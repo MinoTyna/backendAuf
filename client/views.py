@@ -112,8 +112,21 @@ class ClientDeleteAPIView(APIView):
         except Client.DoesNotExist:
             return Response({"error": "Client introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-        client.delete()
-        return Response({"message": "Client supprimÃ© avec succÃ¨s."}, status=status.HTTP_200_OK)
+        client.is_active = False   # Désactivation
+        client.save()
+
+        return Response({"message": "Client désactivé avec succès."}, status=status.HTTP_200_OK)
+class ClientActivateAPIView(APIView):
+    def put(self, request, client_id):
+        try:
+            client = Client.objects.get(id=client_id)
+        except Client.DoesNotExist:
+            return Response({"error": "Client introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        client.is_active = True
+        client.save()
+
+        return Response({"message": "Client activé avec succès."}, status=status.HTTP_200_OK)
 
 # class ClientUpdateAPIView(APIView):
 #     def put(self, request, client_id):
@@ -236,13 +249,21 @@ from rest_framework import status
 from .models import Client
 from .serializers import ClientSerializer
 
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Client
+from .serializers import ClientSerializer
+
 @api_view(["POST", "PUT"])
 @parser_classes([MultiPartParser, FormParser])
 def update_client(request, id):
     client = Client.objects.get(id=id)
     serializer = ClientSerializer(client, data=request.data, context={"request": request})
     if serializer.is_valid():
-        serializer.save()
+        # Forcer is_active à True
+        serializer.save(is_active=True)
         return Response(serializer.data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -275,81 +296,270 @@ from .models import Client
 from .serializers import ClientSerializer
 
 
+# class ConnexionClientAPIView(APIView):
+#     def post(self, request):
+#         data = request.data
+#         email = data.get("Client_email")
+#         nom = data.get("Client_nom")
+#         prenom = data.get("Client_prenom", None)
+#         password = data.get("password")
+
+#         if not password:
+#             return Response({"error": "Mot de passe requis"}, status=400)
+
+#         try:
+#             # Connexion par email
+#             if email:
+#                 client = Client.objects.get(Client_email=email)
+
+#             # Connexion par nom (+ éventuellement prénom)
+#             elif nom:
+#                 if prenom:
+#                     try:
+#                         client = Client.objects.get(Client_nom=nom, Client_prenom=prenom)
+#                     except Client.DoesNotExist:
+#                         return Response({"error": "Nom + prénom incorrects"}, status=400)
+#                 else:
+#                     clients = Client.objects.filter(Client_nom=nom)
+#                     if clients.count() > 1:
+#                         return Response(
+#                             {"error": "Plusieurs clients ont ce nom, entrez aussi votre prénom"},
+#                             status=400
+#                         )
+#                     elif clients.exists():
+#                         client = clients.first()
+#                     else:
+#                         return Response({"error": "Client non trouvé"}, status=400)
+
+#             else:
+#                 return Response({"error": "Email ou Nom requis"}, status=400)
+
+#             # Vérification du mot de passe hashé
+#             if not check_password(password, client.password):
+#                 return Response({"error": "Mot de passe incorrect"}, status=400)
+
+#             # Génération du JWT
+#             refresh = RefreshToken.for_user(client)
+#             refresh["email"] = client.Client_email
+#             refresh["nom"] = client.Client_nom
+#             refresh["prenom"] = client.Client_prenom if client.Client_prenom else ""
+#             refresh["role"] = client.Client_role
+
+#             access_token = str(refresh.access_token)
+#             serializer = ClientSerializer(client)
+
+#             # Réponse avec cookie HTTP-only + token dans le body
+#             response = Response({
+#                 "user": serializer.data,
+#                 "message": "Connexion réussie",
+#                 "token": access_token
+#             }, status=status.HTTP_200_OK)
+
+#             response.set_cookie(
+#                 key="token",
+#                 value=access_token,
+#                 httponly=True,
+#                 secure=True,      # False en dev si pas HTTPS
+#                 samesite="None",  # nécessaire si cross-domain
+#                 max_age=60*60*24*7,  # 7 jours
+#                 path="/"
+#             )
+
+#             return response
+
+#         except Client.DoesNotExist:
+#             return Response({"error": "Client non trouvé"}, status=400)
+#         except Exception as e:
+#             return Response({"error": str(e)}, status=500)
+
+import random
+from datetime import timedelta
+from django.utils import timezone
+from django.core.mail import send_mail
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.contrib.auth.hashers import check_password
+from .models import Client, ClientOTP
+from rest_framework_simplejwt.tokens import RefreshToken
+from .serializers import ClientSerializer
+
+import random
+from datetime import timedelta
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.contrib.auth.hashers import check_password
+from rest_framework_simplejwt.tokens import RefreshToken
+from .models import Client, ClientOTP
+from .serializers import ClientSerializer
+from django.core.mail import send_mail
+from django.conf import settings
+
+# ---------------- LOGIN / OTP ----------------
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.contrib.auth.hashers import check_password, make_password
+from .models import Client, ClientOTP
+import random
+from datetime import timedelta
+from django.utils import timezone
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from django.core.mail import send_mail
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.contrib.auth.hashers import check_password
+from datetime import timedelta
+import random
+
+from .models import Client, ClientOTP
+
+# ---------------- Connexion client -----------------
+from django.core.mail import send_mail
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.contrib.auth.hashers import check_password
+from datetime import timedelta
+import random
+
+from .models import Client, ClientOTP
+
 class ConnexionClientAPIView(APIView):
     def post(self, request):
         data = request.data
         email = data.get("Client_email")
-        nom = data.get("Client_nom")
-        prenom = data.get("Client_prenom", None)
         password = data.get("password")
 
-        if not password:
-            return Response({"error": "Mot de passe requis"}, status=400)
+        if not email or not password:
+            return Response({"error": "Email et mot de passe requis"}, status=400)
 
         try:
-            # Connexion par email
-            if email:
-                client = Client.objects.get(Client_email=email)
+            # ✅ Utiliser filter() pour éviter le plantage si plusieurs clients ont le même email
+            client = Client.objects.filter(Client_email=email).first()
+            if not client:
+                return Response({"error": "Client non trouvé"}, status=400)
 
-            # Connexion par nom (+ éventuellement prénom)
-            elif nom:
-                if prenom:
-                    try:
-                        client = Client.objects.get(Client_nom=nom, Client_prenom=prenom)
-                    except Client.DoesNotExist:
-                        return Response({"error": "Nom + prénom incorrects"}, status=400)
-                else:
-                    clients = Client.objects.filter(Client_nom=nom)
-                    if clients.count() > 1:
-                        return Response(
-                            {"error": "Plusieurs clients ont ce nom, entrez aussi votre prénom"},
-                            status=400
-                        )
-                    elif clients.exists():
-                        client = clients.first()
-                    else:
-                        return Response({"error": "Client non trouvé"}, status=400)
-
-            else:
-                return Response({"error": "Email ou Nom requis"}, status=400)
-
-            # Vérification du mot de passe hashé
             if not check_password(password, client.password):
                 return Response({"error": "Mot de passe incorrect"}, status=400)
 
-            # Génération du JWT
+            # Génération OTP
+            code = str(random.randint(100000, 999999))
+            otp_obj = ClientOTP.objects.create(email=email, code=code, verified=False)
+
+            # Envoi OTP par email
+            try:
+                send_mail(
+                    subject="Votre code OTP",
+                    message=f"Bonjour {client.Client_nom},\n\nVotre code OTP est : {code}\nValable 10 minutes.",
+                    from_email="no-reply@votreapp.com",
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                # Gestion erreur email
+                return Response({"error": f"Impossible d'envoyer l'email : {str(e)}"}, status=500)
+
+            return Response({"message": "OTP envoyé à votre email", "email": email}, status=200)
+
+        except Exception as e:
+            return Response({"error": f"Erreur serveur : {str(e)}"}, status=500)
+
+# ---------------- Vérification OTP -----------------
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core.cache import cache
+from .models import Client
+from .serializers import ClientSerializer
+
+from rest_framework_simplejwt.tokens import RefreshToken
+from .serializers import ClientSerializer
+
+class VerifyClientOTPAPIView(APIView):
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        if not email or not otp:
+            return Response({"error": "Email et OTP requis"}, status=400)
+
+        try:
+            client = Client.objects.filter(Client_email=email).first()
+            if not client:
+                return Response({"error": "Email non trouvé"}, status=400)
+
+            # Génération OTP
+            code = str(random.randint(100000, 999999))
+            otp_obj = ClientOTP.objects.create(email=email, code=code, verified=False)
+
+            # Stockage OTP dans le cache pour vérification
+            from django.core.cache import cache
+            cache.set(f"otp_{client.id}", code, timeout=600)  # 10 minutes
+
+
+            # Création JWT
             refresh = RefreshToken.for_user(client)
             refresh["email"] = client.Client_email
             refresh["nom"] = client.Client_nom
-            refresh["prenom"] = client.Client_prenom if client.Client_prenom else ""
             refresh["role"] = client.Client_role
+            refresh["prenom"] = client.Client_prenom or ""
 
             access_token = str(refresh.access_token)
             serializer = ClientSerializer(client)
 
-            # Réponse avec cookie HTTP-only + token dans le body
             response = Response({
                 "user": serializer.data,
                 "message": "Connexion réussie",
                 "token": access_token
             }, status=status.HTTP_200_OK)
 
+            # Cookie pour navigateur
             response.set_cookie(
                 key="token",
                 value=access_token,
                 httponly=True,
-                secure=True,      # False en dev si pas HTTPS
-                samesite="None",  # nécessaire si cross-domain
-                max_age=60*60*24*7,  # 7 jours
-                path="/"
+                secure=True,
+                samesite="None",
+                max_age=60*60*24*7,
+                path="/",
             )
+
+            # Supprimer OTP du cache
+            cache.delete(f"otp_{client.id}")
 
             return response
 
-        except Client.DoesNotExist:
-            return Response({"error": "Client non trouvé"}, status=400)
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": f"Erreur serveur: {str(e)}"}, status=500)
+
+# ---------------- Réinitialisation mot de passe -----------------
+class ResetClientPasswordAPIView(APIView):
+    def post(self, request):
+        email = request.data.get("email")
+        otp_code = request.data.get("otp")
+        new_password = request.data.get("new_password")
+
+        try:
+            otp_obj = ClientOTP.objects.get(email=email, code=otp_code, verified=True)
+        except ClientOTP.DoesNotExist:
+            return Response({"error": "OTP invalide ou non vérifié"}, status=400)
+
+        try:
+            client = Client.objects.get(Client_email=email)
+        except Client.DoesNotExist:
+            return Response({"error": "Client introuvable"}, status=404)
+
+        client.password = make_password(new_password)
+        client.save()
+        otp_obj.delete()  # supprime OTP après usage
+
+        return Response({"message": "Mot de passe réinitialisé avec succès"}, status=200)
 
 
 from rest_framework.views import APIView
@@ -383,3 +593,85 @@ class UploadImageView(APIView):
             "message": "Image envoyée dans Supabase Storage",
             "url": public_url
         }, status=201)
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.core.mail import send_mail
+from django.utils import timezone
+from django.contrib.auth.hashers import make_password
+from datetime import timedelta
+import random
+
+from .models import Client, ClientOTP
+
+# -------------------- Vérifier email et envoyer OTP --------------------
+class ForgotPasswordClientAPIView(APIView):
+    """Vérifier email client et envoyer OTP"""
+    def post(self, request):
+        email = request.data.get("email")
+        # Utiliser filter() pour éviter MultipleObjectsReturned
+        client = Client.objects.filter(Client_email=email).first()
+        if not client:
+            return Response({"error": "Email introuvable"}, status=404)
+
+        code = str(random.randint(100000, 999999))  # 6 chiffres
+        otp_obj = ClientOTP.objects.create(email=email, code=code, verified=False)
+
+        try:
+            send_mail(
+                subject="Votre code OTP AUF-SARL",
+                message=f"Bonjour {client.Client_nom},\n\nVotre code de vérification est : {code}\nIl expire dans 10 minutes.",
+                from_email=None,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return Response({"error": f"Impossible d'envoyer l'email : {e}"}, status=500)
+
+        return Response({"message": "OTP envoyé à votre email"}, status=200)
+
+
+# -------------------- Vérifier OTP --------------------
+class VerifyClientOTPAPIViews(APIView):
+    """Vérifier OTP client"""
+    def post(self, request):
+        email = request.data.get("email")
+        code = request.data.get("otp")
+        try:
+            otp_obj = ClientOTP.objects.get(email=email, code=code, verified=False)
+        except ClientOTP.DoesNotExist:
+            return Response({"error": "Code OTP invalide"}, status=400)
+
+        if otp_obj.created_at + timedelta(minutes=10) < timezone.now():
+            return Response({"error": "OTP expiré"}, status=400)
+
+        otp_obj.verified = True
+        otp_obj.save()
+        return Response({"message": "OTP vérifié"}, status=200)
+
+
+# -------------------- Réinitialiser mot de passe après OTP --------------------
+class ResetPasswordClientAPIView(APIView):
+    """Réinitialiser le mot de passe client après OTP"""
+    def post(self, request):
+        email = request.data.get("email")
+        otp_code = request.data.get("otp")
+        new_password = request.data.get("new_password")
+
+        # Vérification OTP
+        otp_obj = ClientOTP.objects.filter(email=email, code=otp_code, verified=True).first()
+        if not otp_obj:
+            return Response({"error": "OTP invalide ou non vérifié"}, status=400)
+
+        # Récupération du client
+        client = Client.objects.filter(Client_email=email).first()
+        if not client:
+            return Response({"error": "Client introuvable"}, status=404)
+
+        # Mise à jour du mot de passe
+        client.password = make_password(new_password)
+        client.save()
+
+        # Supprimer OTP
+        otp_obj.delete()
+
+        return Response({"message": "Mot de passe réinitialisé avec succès"}, status=200)

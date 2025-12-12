@@ -15,12 +15,11 @@
 
 # ]
 from django.urls import path
-from .views import PaiementCreateView,LancerPaiementOrange, PaiementListView, VerifierPaiementListView, PaiementDeleteAPIView, ListeResteAPayerParClient,ListePayerParClients,ListePayerParClient,PaiementUpdateView,SmsVerifierByClientView,RepaiementCreateView,PaiementView,ChiffreAffairesAPIView
+from .views import PaiementCreateView,PaiementCreateViews,CPaiementCreateView,LancerPaiementOrange, PaiementListView, VerifierPaiementListView, PaiementDeleteAPIView, ListeResteAPayerParClient,ListePayerParClients,ListePayerParClient,PaiementUpdateView,SmsVerifierByClientView,RepaiementCreateView,PaiementView,ChiffreAffairesAPIView
 from . import views
-from .views import init_payment, om_callback
 urlpatterns = [
     path('post', PaiementCreateView.as_view(), name='enregistrer-paiement'),
-    path('repaiement', RepaiementCreateView.as_view(), name='enregistrer-paiement'),
+    path('repaiement', PaiementCreateViews.as_view(), name='enregistrer-paiement'),
     path('get', PaiementListView.as_view(), name='liste-paiement'),
     path('affaire', ChiffreAffairesAPIView.as_view(), name='liste-paiement'),
     path('facture', PaiementView.as_view(),name='facture'),
@@ -31,13 +30,9 @@ urlpatterns = [
     path('get/client', ListeResteAPayerParClient.as_view(), name='delete-paiement'),
     path('get/<int:client_id>/<str:date_achat>', ListePayerParClients.as_view(), name='delete-paiement'),
     path('get/<int:client_id>', ListePayerParClient.as_view(), name='liste-payer-client'),
-    path("lancer/", views.lancer_paiement, name="lancer_paiement"),
-    path("callback/", views.paiement_callback, name="paiement_callback"),
-    path("paypal/<int:achat_id>/", views.creer_paiement_paypal),
-    path("valider/<int:paiement_id>/", views.valider_paiement_paypal),
-    path("annuler/<int:paiement_id>/", views.annuler_paiement_paypal),  # <-- ajouté
+    path("lancer/", CPaiementCreateView.as_view(), name="lancer_paiement"),
+    path("callback/", views.callback_orange, name="paiement_callback"),
     path('orange/', LancerPaiementOrange.as_view(), name='paiement-orange'),
-    path("api/pay/", init_payment),
-    path("api/payment/callback/", om_callback),
+
 
 ]

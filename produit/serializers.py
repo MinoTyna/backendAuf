@@ -47,6 +47,7 @@ class ProduitSerializer(serializers.ModelSerializer):
             'date',
             'responsable',
             'responsable_id',
+            'is_active',
         ]
 
  # ---------------- CREATE ----------------
